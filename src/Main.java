@@ -3,17 +3,18 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.Array;
 import java.sql.Timestamp;
 import java.text.Normalizer;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class Main {
 
@@ -21,8 +22,182 @@ public class Main {
     static List<String> idsDuplicados = new ArrayList<>();
 
     public static void main(String[] args) throws IOException {
-        criarCSVFromRemessa();
-        validarassociacaoNomeParcela();
+        String sourceFile = "C:\\Users\\romul\\Downloads\\comprovantes_caixa";
+        pegarCpfs(sourceFile);
+    }
+
+    private static void contarValor(String sourceFile) {
+        File sourceFolder = new File(sourceFile);
+        File[] files = sourceFolder.listFiles();
+        BigDecimal total = BigDecimal.ZERO;
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile()) {
+                    String realValor;
+                    BigDecimal valorReal;
+                    String[] valor = file.getName().split("- R\\$");
+                    realValor = valor[1].split("_")[0].trim();
+                    realValor = realValor.replace(',', '.').replace("$", "").trim();
+                    try {
+                        valorReal = new BigDecimal(realValor);
+                        total = total.add(valorReal);
+                    } catch (NumberFormatException e) {
+                        System.out.println("Erro ao converter valor: " + realValor);
+                    }
+                }
+            }
+            System.out.println(total);
+        }
+    }
+
+    private static void pegarCpfs(String sourceFile) throws IOException {
+        File sourceFolder = new File(sourceFile);
+        File[] files = sourceFolder.listFiles();
+        List<String> cpfs = new ArrayList<>();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile()) {
+                    String[] nome = file.getName().split("-");
+                    String cpf = nome[2].trim();
+                    cpf = cpf.substring(cpf.length() - 11);
+                    cpfs.add(cpf);
+                }
+            }
+        }
+        String dados = cpfs.stream().map(c -> "'" + c + "',\n").collect(Collectors.joining());
+        Files.write(new File("C:\\Users\\romul\\Downloads\\comprovantes_caixa\\cpfs.txt").toPath(), dados.getBytes());
+    }
+
+    private static int countFilesWithUnderscore(String folderPath) {
+        File folder = new File(folderPath);
+        File[] files = folder.listFiles();
+        int count = 0;
+
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile() && file.getName().contains("_")) {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+
+    private static void moveFilesWithUnderscore(String sourceFolderPath, String destinationFolderPath) {
+        File sourceFolder = new File(sourceFolderPath);
+        File[] files = sourceFolder.listFiles();
+
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile() && file.getName().contains("104 -") && file.getName().contains("_")) {
+                    Path sourcePath = file.toPath();
+                    Path destinationPath = Paths.get(destinationFolderPath, file.getName());
+
+                    try {
+                        Files.move(sourcePath, destinationPath);
+                        System.out.println("Arquivo " + file.getName() + " movido com sucesso.");
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+    }
+
+    private static void pegarBonusDuplicidade() throws IOException {
+        List<String> linhas = Files.readAllLines(new File("C:\\Users\\romul\\Downloads\\RETORNO_000224_01082023_6307.RET.txt").toPath(), StandardCharsets.UTF_8);
+        StringBuilder novoArquivo = new StringBuilder();
+        novoArquivo.append("Nome, Banco, Agencia, Conta, Valor, CPF, Protocolo\n");
+        for (String linha : linhas) {
+            if (linha.charAt(13) == 'A') {
+                novoArquivo.append("\n");
+                novoArquivo.append(linha, 43, 73).append(", ");
+                novoArquivo.append(linha, 20, 23).append(", ");
+                novoArquivo.append(linha, 23, 29).append(", ");
+                novoArquivo.append(linha, 29, 42).append(", ");
+                String valorPago = linha.substring(119, 134);
+                BigDecimal valorPagoBigDecimal = new BigDecimal(valorPago.substring(0, valorPago.length() - 2) + "." + valorPago.substring(valorPago.length() - 2));
+                novoArquivo.append(valorPagoBigDecimal).append(", ");
+
+            } else if (linha.charAt(13) == 'B') {
+
+                novoArquivo.append(linha, 18, 32).append(", ");
+            } else if (linha.charAt(13) == 'Z') {
+                novoArquivo.append(linha, 78, 103).append("\n");
+            }
+        }
+        novoArquivo = new StringBuilder(novoArquivo.toString().replaceAll("(?m)^[ \t]*\r?\n", ""));
+        Files.write(new File("C:\\Users\\romul\\Downloads\\duplicidades_bonus.txt").toPath(), novoArquivo.toString().getBytes());
+    }
+
+    private static void validarLinhas() throws IOException {
+        List<String> linhas = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\bonus\\remessa-cancelamento353-corrigido.txt").toPath(), StandardCharsets.UTF_8);
+        for (String linha : linhas) {
+            if (linha.length() != 240) {
+                System.out.println("Linha com tamanho diferente de 240: " + linha);
+            }
+        }
+    }
+
+    private static void testeBD() {
+        BigDecimal valorCredito = new BigDecimal("10000.00");
+        BigDecimal valorParcela = new BigDecimal("1346.86");
+        double ap1 = 2500.00;
+        BigDecimal ap1bd = new BigDecimal(ap1);
+        double ap2 = 2500.00;
+        BigDecimal ap2bd = new BigDecimal(ap2);
+        double ap3 = 2500.00;
+        BigDecimal ap3bd = new BigDecimal(ap3);
+        double ap4 = 2500.00;
+        BigDecimal ap4bd = new BigDecimal(ap4);
+        double p1 = (ap1 / valorCredito.doubleValue()) * 100;
+        double p2 = (ap2 / valorCredito.doubleValue()) * 100;
+        double p3 = (ap3 / valorCredito.doubleValue()) * 100;
+        double p4 = (ap4 / valorCredito.doubleValue()) * 100;
+        BigDecimal p1bd = ap1bd.divide(valorCredito, 2, RoundingMode.HALF_DOWN).multiply(new BigDecimal(100));
+        BigDecimal p2bd = ap2bd.divide(valorCredito, 2, RoundingMode.DOWN).multiply(new BigDecimal(100));
+        BigDecimal p3bd = ap3bd.divide(valorCredito, 2, RoundingMode.DOWN).multiply(new BigDecimal(100));
+        BigDecimal p4bd = ap4bd.divide(valorCredito, 2, RoundingMode.DOWN).multiply(new BigDecimal(100));
+        double vp1 = (p1 * valorParcela.doubleValue()) / 100;
+        double vp2 = (p2 * valorParcela.doubleValue()) / 100;
+        double vp3 = (p3 * valorParcela.doubleValue()) / 100;
+        double vp4 = (p4 * valorParcela.doubleValue()) / 100;
+        BigDecimal vp1bd = p1bd.multiply(valorParcela).divide(new BigDecimal(100), 2, RoundingMode.HALF_UP);
+        BigDecimal vp2bd = p2bd.multiply(valorParcela).divide(new BigDecimal(100), 2, RoundingMode.HALF_UP);
+        BigDecimal vp3bd = p3bd.multiply(valorParcela).divide(new BigDecimal(100), 2, RoundingMode.HALF_UP);
+        BigDecimal vp4bd = p4bd.multiply(valorParcela).divide(new BigDecimal(100), 2, RoundingMode.HALF_UP);
+
+        System.out.println("Valor Credito: " + valorCredito);
+        System.out.println("Valor Parcela: " + valorParcela);
+        System.out.println("---Double---");
+        System.out.println("AP1: " + ap1);
+        System.out.println("AP2: " + ap2);
+        System.out.println("AP3: " + ap3);
+        System.out.println("AP4: " + ap4);
+        System.out.println("P1: " + p1);
+        System.out.println(new BigDecimal(p1).setScale(2, RoundingMode.HALF_DOWN).doubleValue());
+        System.out.println("P2: " + p2);
+        System.out.println("P3: " + p3);
+        System.out.println("P4: " + p4);
+        System.out.println("VP1: " + vp1);
+        System.out.println((new BigDecimal(p1).setScale(2, RoundingMode.HALF_DOWN).doubleValue() / 100) * valorParcela.doubleValue());
+        System.out.println("VP2: " + vp2);
+        System.out.println("VP3: " + vp3);
+        System.out.println("VP4: " + vp4);
+        System.out.println("---BigDecimal---");
+        System.out.println("AP1: " + ap1bd);
+        System.out.println("AP2: " + ap2bd);
+        System.out.println("AP3: " + ap3bd);
+        System.out.println("AP4: " + ap4bd);
+        System.out.println("P1: " + p1bd);
+        System.out.println("P2: " + p2bd);
+        System.out.println("P3: " + p3bd);
+        System.out.println("P4: " + p4bd);
+        System.out.println("VP1: " + vp1bd);
+        System.out.println("VP2: " + vp2bd);
+        System.out.println("VP3: " + vp3bd);
+        System.out.println("VP4: " + vp4bd);
     }
 
     private static void bonus() throws IOException {
@@ -44,35 +219,34 @@ public class Main {
 
     public static void criarCSVFromRemessa() throws IOException {
         StringBuilder dados = new StringBuilder("NN, CPF\r");
-        List<String> linhas = Files.readAllLines(new File("C:\\Users\\romul\\Downloads\\remessa-cobranca000235.txt").toPath(), StandardCharsets.UTF_8);
+        List<String> linhas = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\cobranca\\remessa-cobranca000242.txt").toPath(), StandardCharsets.UTF_8);
         for (String linha : linhas) {
             if (linha.charAt(13) == 'P') {
                 String NN = linha.substring(51, 57);
                 dados.append(Long.valueOf(NN)).append(",");
             } else if (linha.charAt(13) == 'Q') {
-                dados.append(linha, 22, 33).append(",").append(linha, 33    , 73).append("\r");
+                dados.append(linha, 22, 33).append(",").append(linha, 33, 73).append("\r");
             }
         }
-        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\validacoes\\remessa000235AR.csv").toPath(), dados.toString().getBytes());
+        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\validacoes\\cobranca000242AR.csv").toPath(), dados.toString().getBytes());
     }
 
     public static void criarCSVFromRemessaP() throws IOException {
-        StringBuilder dados = new StringBuilder("CPF, VALOR\r");
+        StringBuilder dados = new StringBuilder("VALOR, CPF\r");
         List<String> linhas = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\bonus\\remessa-bonus000240.txt").toPath(), StandardCharsets.UTF_8);
         for (String linha : linhas) {
             if (linha.charAt(13) == 'A') {
-                String NN = linha.substring(119, 134);
-                dados.append(Long.valueOf(NN)).append(",");
+                dados.append(linha, 119, 134).append(",");
             } else if (linha.charAt(13) == 'B') {
-                dados.append(linha, 22, 33).append(",").append(linha, 33    , 73).append("\r");
+                dados.append(linha, 21, 32).append("\r");
             }
         }
-        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\validacoes\\remessa000235AR.csv").toPath(), dados.toString().getBytes());
+        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\validacoes\\bonus000240AR.csv").toPath(), dados.toString().getBytes());
     }
 
     public static void validarassociacaoNomeParcela() throws IOException {
-        List<String> linhasDB = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\validacoes\\remessa000235DB.csv").toPath(), StandardCharsets.UTF_8);
-        List<String> linhasRemessa = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\validacoes\\remessa000235AR.csv").toPath(), StandardCharsets.UTF_8);
+        List<String> linhasDB = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\validacoes\\cobranca000242DB.csv").toPath(), StandardCharsets.UTF_8);
+        List<String> linhasRemessa = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\CNAB\\validacoes\\cobranca000242AR.csv").toPath(), StandardCharsets.UTF_8);
         StringBuilder dados = new StringBuilder();
         int contador = 0;
         for (String linhaD : linhasDB) {
@@ -387,5 +561,28 @@ public class Main {
         String valorSemCasasDecimais = valor.substring(0, valor.length() - 2);
         valor = valorSemCasasDecimais + "." + casasDecimais;
         return new BigDecimal(valor);
+    }
+
+    public static String tratarValor(BigDecimal valor, int tamanho) {
+        valor = (BigDecimal) tratarNull(valor, BigDecimal.ZERO.toString());
+        String valorStr = valor.toString().replace(".", "").replace(",", "");
+        return tratarCampoNumerico(valorStr, tamanho);
+    }
+
+    public static Object tratarNull(Object valor, String original) {
+        valor = valor != null ? valor : original;
+        if (valor instanceof String) {
+            valor = removerAcentos((String) valor);
+        }
+        return valor;
+    }
+
+    public static String removerAcentos(String str) {
+        return str != null && !str.isEmpty() ? Normalizer.normalize(str, Normalizer.Form.NFD).replaceAll("[^\\p{ASCII}]", "") : str;
+    }
+
+    static class Pagamento {
+        BigDecimal valor;
+        String cpf;
     }
 }
