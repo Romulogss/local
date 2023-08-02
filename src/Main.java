@@ -5,14 +5,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Array;
 import java.sql.Timestamp;
 import java.text.Normalizer;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -22,7 +24,7 @@ public class Main {
     static List<String> idsDuplicados = new ArrayList<>();
 
     public static void main(String[] args) throws IOException {
-        String sourceFile = "C:\\Users\\romul\\Downloads\\comprovantes_caixa";
+        String sourceFile = "C:\\Users\\romul\\Downloads\\comprovantes_duplicados_demais_bancos";
         pegarCpfs(sourceFile);
     }
 
@@ -65,7 +67,7 @@ public class Main {
             }
         }
         String dados = cpfs.stream().map(c -> "'" + c + "',\n").collect(Collectors.joining());
-        Files.write(new File("C:\\Users\\romul\\Downloads\\comprovantes_caixa\\cpfs.txt").toPath(), dados.getBytes());
+        Files.write(new File("C:\\Users\\romul\\Downloads\\comprovantes_duplicados_demais_bancos\\cpfs.txt").toPath(), dados.getBytes());
     }
 
     private static int countFilesWithUnderscore(String folderPath) {
@@ -90,7 +92,7 @@ public class Main {
 
         if (files != null) {
             for (File file : files) {
-                if (file.isFile() && file.getName().contains("104 -") && file.getName().contains("_")) {
+                if (file.isFile() && !file.getName().contains("104 -") && file.getName().contains("_")) {
                     Path sourcePath = file.toPath();
                     Path destinationPath = Paths.get(destinationFolderPath, file.getName());
 
