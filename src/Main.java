@@ -11,10 +11,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -24,8 +21,104 @@ public class Main {
     static List<String> idsDuplicados = new ArrayList<>();
 
     public static void main(String[] args) throws IOException {
-        String sourceFile = "C:\\Users\\romul\\Downloads\\comprovantes_duplicados_demais_bancos";
-        pegarCpfs(sourceFile);
+        tratarPlanilhaDesistencia();
+        criarInsertAtendimento();
+        criarUpdateAtendimento();
+    }
+
+    public static void tratarPlanilhaDesistencia() throws IOException {
+        List<String> clientes = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\desistencia\\Projeto 1ª Etapa Consolidação.csv").toPath(), StandardCharsets.UTF_8);
+        StringBuilder clientesTratados = new StringBuilder();
+        for (String cliente : clientes) {
+            String[] dados = cliente.split(",");
+            String cpf = dados[1].replace("'", "").trim();
+            String dtCadastro = dados[2].replace("'", "").trim();
+            String assistente = dados[3].replace("'", "").trim();
+            if (assistente.length() > 50) {
+                System.out.println("Assistente: " + assistente);
+                assistente = assistente.substring(0, 50);
+            }
+            String status = dados[4].replace("'", "").trim();
+            String dataAtendimento = dados[5].replace("'", "").trim();
+            String obs = "NÃO INFORMADO";
+            try {
+                obs = dados[6].replace("'", "").trim();
+            } catch (ArrayIndexOutOfBoundsException ignored) {
+            }
+            if (obs.toLowerCase().contains("estado") || obs.toLowerCase().contains("ceará") || obs.toLowerCase().contains("ceara")) {
+                status = "RESIDENTE_OUTRO_ESTADO";
+            }
+            if (obs.toLowerCase().contains("número") || obs.toLowerCase().contains("numero") || obs.toLowerCase().contains("telefone") || obs.toLowerCase().contains("celular")) {
+                status = "TENTATIVA_ATENDIMENTO";
+            }
+            if (status.equals("FORA_DO_PERFIL")) {
+                status = "OUTROS";
+            }
+            if (status.equals("DESISTENCIA")) {
+                status = "DESISTIU";
+            }
+            cpf = cpf.replace(".", "").replace("-", "");
+            dtCadastro = dtCadastro.replace("/", "-");
+            dataAtendimento = dataAtendimento.replace("/", "-");
+            //verificar se dataAtendimento é tem formado válido yyyy-MM-dd
+            String[] data = dataAtendimento.split("-");
+            if (!(data[0].length() == 4)) {
+                System.out.println("Data de atendimento inválida: " + dataAtendimento);
+            }
+            clientesTratados.append(cpf).append(",").append(dtCadastro).append(",").append(assistente).append(",").append(status).append(",").append(dataAtendimento).append(",").append(obs).append("\n");
+        }
+        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\desistencia\\Projeto 1ª Etapa Consolidação Tratado.csv").toPath(), clientesTratados.toString().getBytes());
+    }
+
+    public static void criarInsertAtendimento() throws IOException {
+        String sql = "INSERT INTO mpodigital.historico_atendimento_cliente (CD_USU, dt_atendimento, tx_informacao_adicional, EN_DETALHE_SITUACAO, ID_CLIENTE) " +
+                "VALUES (:cdUsu, :dtAtendimento, :txInformacaoAdicional, :enDetalheSituacao, (SELECT TOP 1 id_cliente FROM mpodigital.cliente WHERE cd_cpf_cnpj = :cpf ORDER BY dt_atualizacao DESC))";
+        List<String> clientes = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\desistencia\\Projeto 1ª Etapa Consolidação Tratado.csv").toPath(), StandardCharsets.UTF_8);
+        StringBuilder inserts = new StringBuilder();
+        for (String linha : clientes) {
+            String[] dados = linha.split(",");
+            String cpf = dados[0].trim();
+            String cdUsu = recuperarPrimeiroUltimoNome(dados[2].trim()).toUpperCase();
+            String status = dados[3].trim();
+            String dataAtendimento = dados[4].trim();
+            String obs = dados[5].trim();
+            String insert = sql.replace(":cdUsu", "'" + cdUsu + "'")
+                    .replace(":dtAtendimento", "'" + dataAtendimento + "'")
+                    .replace(":txInformacaoAdicional", "'" + obs + "'")
+                    .replace(":enDetalheSituacao", "'" + status + "'")
+                    .replace(":cpf", "'" + cpf + "'");
+            inserts.append(insert).append("\n");
+        }
+        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\desistencia\\inserts.sql").toPath(), inserts.toString().getBytes());
+    }
+
+    public static void criarUpdateAtendimento() throws IOException {
+        String sql = "UPDATE mpodigital.cliente " +
+                " SET en_situacao = mpodigital.GET_SITUACAO_ENUM_BY_DETALHE_SITUACAO_ENUM(:detalheSituacao), " +
+                " en_detalhe_situacao = :detalheSituacao, " +
+                " en_excluido = 1, " +
+                " EN_ARQUIVADO = 'SIM', " +
+                " dt_atualizacao = (SELECT ISNULL(CAST(MAX(dt_atendimento) AS DATETIME), GETDATE()) " +
+                " FROM mpodigital.historico_atendimento_cliente " +
+                " WHERE cliente.id_cliente = historico_atendimento_cliente.ID_CLIENTE) " +
+                "WHERE cd_cpf_cnpj = :cpf";
+        List<String> clientes = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\desistencia\\Projeto 1ª Etapa Consolidação Tratado.csv").toPath(), StandardCharsets.UTF_8);
+        StringBuilder updates = new StringBuilder();
+        for (String linha : clientes) {
+            String[] dados = linha.split(",");
+            String cpf = dados[0].trim();
+            String status = dados[3].trim();
+            updates.append(sql.replace(":detalheSituacao", "'" + status + "'")
+                    .replace(":cpf", "'" + cpf + "'")).append("\n");
+        }
+        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\desistencia\\updates.sql").toPath(), updates.toString().getBytes());
+    }
+
+    private static Date add(Date date, int calendarField, int amount) {
+        Calendar c = Calendar.getInstance();
+        c.setTime(date);
+        c.add(calendarField, amount);
+        return c.getTime();
     }
 
     private static void contarValor(String sourceFile) {
@@ -67,7 +160,7 @@ public class Main {
             }
         }
         String dados = cpfs.stream().map(c -> "'" + c + "',\n").collect(Collectors.joining());
-        Files.write(new File("C:\\Users\\romul\\Downloads\\comprovantes_duplicados_demais_bancos\\cpfs.txt").toPath(), dados.getBytes());
+        Files.write(new File(sourceFile + "\\cpfs.txt").toPath(), dados.getBytes());
     }
 
     private static int countFilesWithUnderscore(String folderPath) {
@@ -92,7 +185,7 @@ public class Main {
 
         if (files != null) {
             for (File file : files) {
-                if (file.isFile() && !file.getName().contains("104 -") && file.getName().contains("_")) {
+                if (file.isFile() && file.getName().contains("_")) {
                     Path sourcePath = file.toPath();
                     Path destinationPath = Paths.get(destinationFolderPath, file.getName());
 
@@ -586,5 +679,10 @@ public class Main {
     static class Pagamento {
         BigDecimal valor;
         String cpf;
+    }
+
+    public static String recuperarPrimeiroUltimoNome(String texto) {
+        String[] nomes = texto.trim().split(" ");
+        return nomes.length > 2 ? nomes[0] + "." + nomes[nomes.length - 1] : texto;
     }
 }
