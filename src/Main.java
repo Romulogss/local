@@ -21,9 +21,62 @@ public class Main {
     static List<String> idsDuplicados = new ArrayList<>();
 
     public static void main(String[] args) throws IOException {
-        tratarPlanilhaDesistencia();
-        criarInsertAtendimento();
-        criarUpdateAtendimento();
+        publicoAlvo();
+    }
+
+    public static void publicoAlvo() throws IOException {
+        List<String> clientes = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\correcao_contas_bonus_rejeicao.csv").toPath(), StandardCharsets.UTF_8);
+        StringBuilder clientesTratados = new StringBuilder();
+        String sql = "UPDATE mpodigital.conta\n" +
+                "SET agencia        = :agencia,\n" +
+                "    conta_corrente = :conta,\n" +
+                "    codigo_banco   = :banco,\n" +
+                "    operacao       = :operacao\n" +
+                "WHERE EXISTS(SELECT 1\n" +
+                "             FROM mpodigital.participante_bonificacao pb\n" +
+                "                      INNER JOIN mpodigital.MCRED_PARTICIPANTE_CONTRATO pt ON pb.ID_PARTICIPANTE = pt.ID_PARTICIPANTE\n" +
+                "             WHERE pt.ID_CLIENTE = conta.id_cliente\n" +
+                "               AND pb.VALOR_BONIFICACAO = :valor\n" +
+                "               AND mpodigital.fncRemove_Acentuacao(CAST(pt.NOME_PARTICIPANTE AS VARCHAR(30))) = :nome\n" +
+                "               AND pb.ID_LOTE = 13);";
+        for (String linha : clientes) {
+            String[] dados = linha.split(",");
+            String nome = dados[0].trim();
+            String valor = dados[1].trim();
+            String banco = dados[2].trim();
+            //BANCO DEVE TER 3 DIGITOS
+            if (banco.length() == 1) {
+                banco = "00" + banco;
+            } else if (banco.length() == 2) {
+                banco = "0" + banco;
+            }
+            if (banco.length() > 3) {
+                System.out.println("Banco: " + banco);
+                banco = banco.substring(0, 3);
+            }
+            String agencia = dados[3].trim();
+            //agencia deve ter, no mínimo, 4 dígitos
+            if (agencia.length() == 1) {
+                agencia = "000" + agencia;
+            } else if (agencia.length() == 2) {
+                agencia = "00" + agencia;
+            } else if (agencia.length() == 3) {
+                agencia = "0" + agencia;
+            }
+            String operacao = dados[4].trim();
+            if (operacao.equals("-")) {
+                operacao = "null";
+            }
+            String conta = dados[5].trim();
+            String update = sql.replace(":nome", "'" + nome + "'")
+                    .replace(":valor", valor)
+                    .replace(":banco", "'" + banco + "'")
+                    .replace(":agencia", "'" + agencia + "'")
+                    .replace(":operacao", operacao.equals("null") ? operacao : "'" + operacao + "'")
+                    .replace(":conta", "'" + conta + "'");
+            clientesTratados.append(update).append("\n");
+        }
+        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\correcao_contas_bonus_rejeicao.sql").toPath(), clientesTratados.toString().getBytes());
     }
 
     public static void tratarPlanilhaDesistencia() throws IOException {
@@ -616,7 +669,8 @@ public class Main {
     private static String getSubQueryCliente(String linha) {
         int inicioCpf = linha.indexOf("('") + 1;
         String cpf = linha.substring(inicioCpf, inicioCpf + 13);
-        return linha.replaceAll(cpf, "(SELECT id_cliente FROM mpodigital.cliente WHERE cd_cpf_cnpj = " + cpf + ")");
+        return linha.replaceAll(cpf, "(SELECT TOP 1 id_cliente FROM mpodigital.cliente c WHERE cd_cpf_cnpj = " + cpf +
+                " AND NOT EXISTS (SELECT 1 FROM mpodigital.identificacao i WHERE c.id_cliente = i.id_cliente) AND EN_CADASTRO_AVALISTA = 'NAO' ORDER BY dt_atualizacao)");
     }
 
     private static String getSubQueryClienteAgente(String linha) {
