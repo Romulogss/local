@@ -7,76 +7,146 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.text.Normalizer;
+import java.text.ParseException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class Main {
 
     static Set<String> ids = new HashSet<>();
     static List<String> idsDuplicados = new ArrayList<>();
+    private static final int BLOCK_SIZE = 100 * 1024 * 1024; // 100MB
 
-    public static void main(String[] args) throws IOException {
-        publicoAlvo();
+    public static void main(String[] args) throws IOException, ParseException {
+        verificarPariticipantesCongelados();
+    }
+
+    private static void testeVotacao() {
+        List<VotoPorValor> votos = Arrays.asList(
+                new VotoPorValor(BigDecimal.valueOf(2000L), 1L),
+                new VotoPorValor(BigDecimal.valueOf(2001L), 1L),
+                new VotoPorValor(BigDecimal.valueOf(2002L), 1L)
+        );
+        int qtdVotosDistintos = (int) votos.stream().map(VotoPorValor::getQtdVoto).distinct().count();
+        if (qtdVotosDistintos == 1) {
+            System.out.println("Todos VOTOS IGUAIS");
+        } else if (qtdVotosDistintos == 3L) {
+            System.out.println("Todos VOTOS DIFERENTES");
+        } else {
+            System.out.println("2 para 1");
+        }
+    }
+
+    public static void verificarPariticipantesCongelados() throws IOException {
+        List<String> clientesDB = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\congelados_dezembro.csv").toPath(), StandardCharsets.UTF_8);
+        List<String> clientesRemessa = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\rejeitados_dezembro.csv").toPath(), StandardCharsets.UTF_8);
+        StringBuilder rejeicoes = new StringBuilder();
+        int count = 0;
+        for (String linhaRemessa : clientesRemessa) {
+            String[] dados = linhaRemessa.split(",");
+            String nome = dados[10].trim();
+//            BigDecimal valor = new BigDecimal(dados[11].replace("'", "").replace(".", "").replace(",", ".").trim());
+            for (String linhaDB : clientesDB) {
+                String[] dadosDB = linhaDB.split(",");
+                String nomeDB = CNABUtils.tratarCampoAlfNumerico(dadosDB[1].trim(), 25).trim();
+//                BigDecimal valorDB = new BigDecimal(dadosDB[4].trim());
+                if (nomeDB.equals(nome)) {
+                    rejeicoes.append(linhaRemessa).append("\n");
+                }
+            }
+            count++;
+            System.out.println("Linha: " + count + " de " + clientesRemessa.size());
+        }
+        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\situacao_agendamentos_congelados.csv").toPath(), rejeicoes.toString().getBytes());
+    }
+
+    public static void tipoProposta() throws IOException {
+        List<String> propostas = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\oscip\\correcao_tp.csv").toPath(), StandardCharsets.UTF_8);
+        StringBuilder propostasTratados = new StringBuilder();
+        String sql = "UPDATE PROPOSTA SET TIPO_PROPOSTA = ':tipo_proposta' WHERE ID_PROPOSTA = :idProposta;";
+        for (String linha : propostas) {
+            String[] dados = linha.split(",");
+            String id = dados[0].trim();
+            String tipoAtual = dados[1].trim();
+            String tipoNovo = dados[2].trim();
+            if (!tipoAtual.equals(tipoNovo)) {
+                String update = sql.replace(":idProposta", id)
+                        .replace(":tipo_proposta", tipoNovo);
+                propostasTratados.append(update).append("\n");
+            }
+        }
+        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\oscip\\propostas_renovacao_update_3.sql").toPath(), propostasTratados.toString().getBytes());
+    }
+
+    public static void tratarNovaTabela() throws IOException {
+        List<String> linhas = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\oscip\\participantes.sql").toPath(), StandardCharsets.UTF_8);
+        StringBuilder dados = new StringBuilder();
+        for (String linha : linhas) {
+            dados.append(linha.replaceAll("BA_PRD_CF.T402PART", "PARTICIPANTE_CONTRATO")).append("\n");
+        }
+        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\oscip\\participantes_tratados.sql").toPath(), dados.toString().getBytes());
+    }
+
+    public static void contratosRecuperados() {
+        try {
+            List<String> contratos = new ArrayList<>();
+            FileInputStream fis = new FileInputStream("D:\\contratos\\output.txt");
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = fis.read(buffer)) != -1) {
+                baos.write(buffer, 0, length);
+            }
+            fis.close();
+            String fileContent = baos.toString("UTF-8");
+            String[] lines = fileContent.split("\\r?\\n");
+            for (String line : lines) {
+                List<String> bases64 = capturarBase64(line);
+                if (!bases64.isEmpty()) {
+                    contratos.addAll(bases64);
+                }
+            }
+            Files.write(Paths.get("D:\\contratos\\output_tratado.txt"), contratos);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static List<String> capturarBase64(String linha) {
+        String regex = "\\bJVBERi0xL[A-Za-z0-9+/]*={0,2}\\b";
+        Pattern pattern = Pattern.compile(regex);
+        Matcher matcher = pattern.matcher(linha);
+        List<String> bases64 = new ArrayList<>();
+        while (matcher.find()) {
+            bases64.add(matcher.group());
+        }
+        return bases64;
     }
 
     public static void publicoAlvo() throws IOException {
-        List<String> clientes = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\correcao_contas_bonus_rejeicao.csv").toPath(), StandardCharsets.UTF_8);
+        List<String> clientes = Files.readAllLines(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\oscip\\DESENROLA_PUBLICO_ALVO.csv").toPath(), StandardCharsets.UTF_8);
         StringBuilder clientesTratados = new StringBuilder();
-        String sql = "UPDATE mpodigital.conta\n" +
-                "SET agencia        = :agencia,\n" +
-                "    conta_corrente = :conta,\n" +
-                "    codigo_banco   = :banco,\n" +
-                "    operacao       = :operacao\n" +
-                "WHERE EXISTS(SELECT 1\n" +
-                "             FROM mpodigital.participante_bonificacao pb\n" +
-                "                      INNER JOIN mpodigital.MCRED_PARTICIPANTE_CONTRATO pt ON pb.ID_PARTICIPANTE = pt.ID_PARTICIPANTE\n" +
-                "             WHERE pt.ID_CLIENTE = conta.id_cliente\n" +
-                "               AND pb.VALOR_BONIFICACAO = :valor\n" +
-                "               AND mpodigital.fncRemove_Acentuacao(CAST(pt.NOME_PARTICIPANTE AS VARCHAR(30))) = :nome\n" +
-                "               AND pb.ID_LOTE = 13);";
+        String sql = "UPDATE PUBLICO_ALVO SET MATRICULA = :matricula WHERE CPF = :cpf;";
         for (String linha : clientes) {
             String[] dados = linha.split(",");
-            String nome = dados[0].trim();
-            String valor = dados[1].trim();
-            String banco = dados[2].trim();
-            //BANCO DEVE TER 3 DIGITOS
-            if (banco.length() == 1) {
-                banco = "00" + banco;
-            } else if (banco.length() == 2) {
-                banco = "0" + banco;
+            String matricula = dados[1].trim();
+            String cpfCliente = dados[2].trim();
+            //se cpf menor que 11, completar com zeros a esquerda
+            if (cpfCliente.length() < 11) {
+                cpfCliente = leftPadWithZeros(cpfCliente, 11);
             }
-            if (banco.length() > 3) {
-                System.out.println("Banco: " + banco);
-                banco = banco.substring(0, 3);
-            }
-            String agencia = dados[3].trim();
-            //agencia deve ter, no mínimo, 4 dígitos
-            if (agencia.length() == 1) {
-                agencia = "000" + agencia;
-            } else if (agencia.length() == 2) {
-                agencia = "00" + agencia;
-            } else if (agencia.length() == 3) {
-                agencia = "0" + agencia;
-            }
-            String operacao = dados[4].trim();
-            if (operacao.equals("-")) {
-                operacao = "null";
-            }
-            String conta = dados[5].trim();
-            String update = sql.replace(":nome", "'" + nome + "'")
-                    .replace(":valor", valor)
-                    .replace(":banco", "'" + banco + "'")
-                    .replace(":agencia", "'" + agencia + "'")
-                    .replace(":operacao", operacao.equals("null") ? operacao : "'" + operacao + "'")
-                    .replace(":conta", "'" + conta + "'");
+            String update = sql.replace(":matricula", matricula)
+                    .replace(":cpf", cpfCliente);
             clientesTratados.append(update).append("\n");
         }
-        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\adece\\correcao_contas_bonus_rejeicao.sql").toPath(), clientesTratados.toString().getBytes());
+        Files.write(new File("C:\\Users\\romul\\OneDrive\\Documentos\\WPE\\docs\\oscip\\DESENROLA_PUBLICO_ALVO_matricula.sql").toPath(), clientesTratados.toString().getBytes());
     }
 
     public static void tratarPlanilhaDesistencia() throws IOException {
@@ -522,31 +592,6 @@ public class Main {
         }
     }
 
-    public static class VotoPorValor {
-        private BigDecimal valor;
-        private Long qtdVoto = 0L;
-
-        public VotoPorValor(BigDecimal valor, Long qtdVoto) {
-            this.valor = valor;
-            this.qtdVoto = qtdVoto;
-        }
-
-        public BigDecimal getValor() {
-            return valor;
-        }
-
-        public void setValor(BigDecimal valor) {
-            this.valor = valor;
-        }
-
-        public Long getQtdVoto() {
-            return qtdVoto;
-        }
-
-        public void setQtdVoto(Long qtdVoto) {
-            this.qtdVoto = qtdVoto;
-        }
-    }
 
     public static void lerArquivo(String pathEntrada, String pathSaida, Function<String, String> tratarLinha) throws IOException {
         FileInputStream stream = new FileInputStream(pathEntrada);
@@ -738,5 +783,31 @@ public class Main {
     public static String recuperarPrimeiroUltimoNome(String texto) {
         String[] nomes = texto.trim().split(" ");
         return nomes.length > 2 ? nomes[0] + "." + nomes[nomes.length - 1] : texto;
+    }
+
+    public static class VotoPorValor {
+        private BigDecimal valor;
+        private Long qtdVoto = 0L;
+
+        public VotoPorValor(BigDecimal valor, Long qtdVoto) {
+            this.valor = valor;
+            this.qtdVoto = qtdVoto;
+        }
+
+        public BigDecimal getValor() {
+            return valor;
+        }
+
+        public void setValor(BigDecimal valor) {
+            this.valor = valor;
+        }
+
+        public Long getQtdVoto() {
+            return qtdVoto;
+        }
+
+        public void setQtdVoto(Long qtdVoto) {
+            this.qtdVoto = qtdVoto;
+        }
     }
 }
